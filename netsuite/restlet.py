@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Tuple, Union
+from typing import Tuple, Union
 
 import requests_oauthlib
 
