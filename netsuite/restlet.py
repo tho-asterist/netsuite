@@ -78,7 +78,8 @@ class NetsuiteRestlet:
 
     def _make_default_hostname(self):
         account_slugified = self.config.account.lower().replace('_', '-')
-        return f'{account_slugified}.restlets.api.netsuite.com'
+        # return f'{account_slugified}.restlets.api.netsuite.com'
+        return f'{account_slugified}.app.netsuite.com'
 
     def _make_restlet_path(self, script_id: int, deploy: int = 1):
         return self._restlet_path_tmpl.format(
