@@ -5,10 +5,11 @@ from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
 from typing import Any, Callable, Dict, List, Sequence, Union, Optional
+from enum import Enum
 
 import requests
 import zeep
-from zeep.cache import SqliteCache
+from zeep.cache import (SqliteCache, InMemoryCache)
 from zeep.xsd import ComplexType
 from zeep.xsd.valueobjects import CompoundValue
 
@@ -26,6 +27,11 @@ class NetsuiteResponseError(Exception):
 
 class NoSuchTypeError(Exception):
     """Raised when attempting to fetch a factory or get a factory name for an undefined type."""
+
+
+class ZEEP_CACHE_TYPE(Enum):
+    IN_MEMORY = 1
+    SQL_LITE = 2
 
 
 def WebServiceCall(
@@ -101,7 +107,7 @@ class NetSuite:
         *,
         version: str = None,
         wsdl_url: str = None,
-        cache: zeep.cache.Base = None,
+        cache: zeep.cache.Base = ZEEP_CACHE_TYPE.IN_MEMORY,
         session: requests.Session = None,
         sandbox: bool = None
     ) -> None:
@@ -134,7 +140,9 @@ class NetSuite:
 
     @cached_property
     def cache(self) -> zeep.cache.Base:
-        return self.__cache or self._generate_cache()
+        if self.__cache is ZEEP_CACHE_TYPE.IN_MEMORY:
+            return self._generate_inmemory_cache()
+        return self._generate_cache()
 
     @cached_property
     def session(self) -> requests.Session:
@@ -185,6 +193,9 @@ class NetSuite:
 
     def _generate_cache(self) -> zeep.cache.Base:
         return SqliteCache(timeout=60 * 60 * 24 * 365)
+
+    def _generate_inmemory_cache(self) -> zeep.cache.Base:
+        return InMemoryCache(timeout=60 * 60 * 24 * 365)
 
     def _generate_session(self) -> requests.Session:
         return requests.Session()
