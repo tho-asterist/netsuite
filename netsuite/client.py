@@ -579,8 +579,8 @@ class NetSuite:
             return svc(*args, _soapheaders=self.generate_passport(), **kw)
         except zeep.exceptions.Fault as e:
             errMsg = 'Re-bind NetSuite data center endpoint because %s' % (e.message)
-            # warnings.warn(errMsg, ResourceWarning)
-            logger.warning(errMsg)
+            warnings.warn(errMsg, ResourceWarning)
+            # logger.warning(errMsg)
             svc = getattr(self.service_proxy, service_name)
             return svc(*args, _soapheaders=self.generate_passport(), **kw)
 
