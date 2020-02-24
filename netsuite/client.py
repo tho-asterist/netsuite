@@ -97,7 +97,7 @@ def WebServiceCall(
 
 
 class NetSuite:
-    version = '2019.1.0'
+    version = '2018.1.0'
     wsdl_url_tmpl = 'https://{account_id}.suitetalk.api.netsuite.com/wsdl/v{underscored_version}/netsuite.wsdl'
     datacenter_url_tmpl = 'https://{account_id}.suitetalk.api.netsuite.com/services/NetSuitePort_{underscored_version_no_micro}'
 
