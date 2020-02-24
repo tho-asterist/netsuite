@@ -90,13 +90,16 @@ def WebServiceCall(
                 response = extract(response)
 
             return response
+
         return wrapper
+
     return decorator
 
 
 class NetSuite:
     version = '2018.1.0'
     wsdl_url_tmpl = 'https://{account_id}.suitetalk.api.netsuite.com/wsdl/v{underscored_version}/netsuite.wsdl'
+    datacenter_url_tmpl = 'https://{account_id}.suitetalk.api.netsuite.com/services/NetSuitePort_{underscored_version_no_micro}'
 
     def __repr__(self) -> str:
         return f'<NetSuite {self.hostname}({self.version})>'
@@ -152,6 +155,10 @@ class NetSuite:
     def client(self) -> zeep.Client:
         return self._generate_client()
 
+    @property
+    def service_proxy(self) -> zeep.client.ServiceProxy:
+        return self._generate_service_proxy()
+
     @cached_property
     def transport(self):
         return self._generate_transport()
@@ -168,10 +175,7 @@ class NetSuite:
     def service(self) -> zeep.client.ServiceProxy:
         return self.client.service
 
-    def _make_config(
-        self,
-        values_obj: Dict
-    ) -> Config:
+    def _make_config(self, values_obj: Dict) -> Config:
         if isinstance(values_obj, Config):
             return values_obj
         return Config(**values_obj)
@@ -191,12 +195,18 @@ class NetSuite:
             account_id=self.config.account.lower().replace('_', '-'),
         )
 
+    def _generate_datacenter_url(self) -> str:
+        return self.datacenter_url_tmpl.format(
+            account_id=self.config.account.lower().replace('_', '-'),
+            underscored_version_no_micro=self.underscored_version_no_micro
+        )
+
     def _generate_cache(self) -> zeep.cache.Base:
         return SqliteCache(timeout=60 * 60 * 24 * 365)
 
     def _generate_inmemory_cache(self) -> zeep.cache.Base:
         return InMemoryCache(timeout=60 * 60 * 24 * 365)
-
+        
     def _generate_session(self) -> requests.Session:
         return requests.Session()
 
@@ -220,10 +230,7 @@ class NetSuite:
             yield
 
     @staticmethod
-    def _set_default_soapheaders(
-        client: zeep.Client,
-        preferences: dict = None
-    ) -> None:
+    def _set_default_soapheaders(client: zeep.Client, preferences: dict = None) -> None:
         client.set_default_soapheaders({
             # https://netsuite.custhelp.com/app/answers/detail/a_id/40934
             # (you need to be logged in to SuiteAnswers for this link to work)
@@ -247,24 +254,24 @@ class NetSuite:
         )
         return client
 
+    def _generate_service_proxy(self) -> zeep.client.ServiceProxy:
+        self._service_proxy = self.client.create_service(
+            '{urn:platform_%s.webservices.netsuite.com}NetSuiteBinding' %
+            (self.underscored_version_no_micro), self._generate_datacenter_url()
+        )
+        return self._service_proxy
+
     def _get_namespace(self, name: str, sub_namespace: str) -> str:
         return (
-            'urn:{name}_{version}.{sub_namespace}.webservices.netsuite.com'
-            .format(
+            'urn:{name}_{version}.{sub_namespace}.webservices.netsuite.com'.format(
                 name=name,
                 version=self.underscored_version_no_micro,
                 sub_namespace=sub_namespace,
             )
         )
 
-    def _type_factory(
-        self,
-        name: str,
-        sub_namespace: str
-    ) -> zeep.client.Factory:
-        return self.client.type_factory(
-            self._get_namespace(name, sub_namespace)
-        )
+    def _type_factory(self, name: str, sub_namespace: str) -> zeep.client.Factory:
+        return self.client.type_factory(self._get_namespace(name, sub_namespace))
 
     @cached_property
     def types_dump(self) -> List[str]:
@@ -294,10 +301,15 @@ class NetSuite:
         """
         query = query.lower()
         # boolean, integer, float, etc.
-        basic_types = [type_def for type_def in self.types_dump
-                       if 'xsd:' in type_def and query in type_def.lower() and '(' not in type_def]
+        basic_types = [
+            type_def for type_def in self.types_dump
+            if 'xsd:' in type_def and query in type_def.lower() and '(' not in type_def
+        ]
         # VendorSearch, VendorSearchBasic, etc.
-        wsdl_types = [type_def for type_def in self.types_dump if '(' in type_def and query in type_def.split('(')[0].lower()]
+        wsdl_types = [
+            type_def for type_def in self.types_dump
+            if '(' in type_def and query in type_def.split('(')[0].lower()
+        ]
         return basic_types + wsdl_types
 
     def search_type_args(self, query: str) -> List[str]:
@@ -312,7 +324,10 @@ class NetSuite:
         type_definitions_with_vendor_in_arg_names = client.search_type_args('Vendor')
         """
         query = query.lower()
-        return [type_def for type_def in self.types_dump if '(' in type_def and query in type_def.split('(')[1].lower()]
+        return [
+            type_def for type_def in self.types_dump
+            if '(' in type_def and query in type_def.split('(')[1].lower()
+        ]
 
     def get_type(self, type_name: str) -> Optional[str]:
         """
@@ -549,12 +564,7 @@ class NetSuite:
     def SupplyChainTypes(self) -> zeep.client.Factory:
         return self._type_factory('types.supplychain', 'lists')
 
-    def request(
-        self,
-        service_name: str,
-        *args,
-        **kw
-    ) -> zeep.xsd.ComplexType:
+    def request(self, service_name: str, *args, **kw) -> zeep.xsd.ComplexType:
         """
         Make a web service request to NetSuite
 
@@ -564,19 +574,21 @@ class NetSuite:
         Returns:
             The response from NetSuite
         """
-        svc = getattr(self.service, service_name)
-        return svc(*args, _soapheaders=self.generate_passport(), **kw)
+        try:
+            svc = getattr(self.service, service_name)
+            return svc(*args, _soapheaders=self.generate_passport(), **kw)
+        except zeep.exceptions.Fault as e:
+            errMsg = 'Re-bind NetSuite data center endpoint because %s' % (e.message)
+            warnings.warn(errMsg, ResourceWarning)
+            logger.warning(errMsg)
+            svc = getattr(self.service_proxy, service_name)
+            return svc(*args, _soapheaders=self.generate_passport(), **kw)
 
     @WebServiceCall(
-        'body.readResponseList.readResponse',
-        extract=lambda resp: [r['record'] for r in resp]
+        'body.readResponseList.readResponse', extract=lambda resp: [r['record'] for r in resp]
     )
     def getList(
-        self,
-        recordType: str,
-        *,
-        internalIds: Sequence[int] = (),
-        externalIds: Sequence[str] = ()
+        self, recordType: str, *, internalIds: Sequence[int] = (), externalIds: Sequence[str] = ()
     ) -> ComplexType:
         """Get a list of records"""
 
@@ -605,11 +617,7 @@ class NetSuite:
         extract=lambda resp: resp['record'],
     )
     def get(
-        self,
-        recordType: str,
-        *,
-        internalId: int = None,
-        externalId: str = None
+        self, recordType: str, *, internalId: int = None, externalId: str = None
     ) -> CompoundValue:
         """Get a single record"""
         if len([v for v in (internalId, externalId) if v is not None]) != 1:
@@ -636,9 +644,7 @@ class NetSuite:
         """Get all records of a given type."""
         return self.request(
             'getAll',
-            record=self.Core.GetAllRecord(
-                recordType=recordType,
-            ),
+            record=self.Core.GetAllRecord(recordType=recordType, ),
         )
 
     @WebServiceCall(
@@ -719,7 +725,6 @@ class NetSuite:
         extract=lambda resp: resp,
     )
     def delete(self, record: CompoundValue, deletion_reason: CompoundValue = None) -> CompoundValue:
-
         """
         Delete a single record.
 
@@ -744,7 +749,9 @@ class NetSuite:
         'body.writeResponse',
         extract=lambda resp: resp,
     )
-    def deleteList(self, records: List[CompoundValue], deletion_reason: List[CompoundValue]) -> CompoundValue:
+    def deleteList(
+        self, records: List[CompoundValue], deletion_reason: List[CompoundValue]
+    ) -> CompoundValue:
         """
         Delete a list of records.
 
@@ -754,8 +761,7 @@ class NetSuite:
         :return: List[WriteResponse<DeleteResponse{status: {statusDetail: list, isSuccess: bool}, baseRef: RecordRef}]
         """
 
-        logger.WARNING("deleteList implementation is not stable, expect errors.")
-
+        logger.warning("deleteList implementation is not stable, expect errors.")
         return self.request('deleteList', records, deletion_reason)
 
     @WebServiceCall(
@@ -793,18 +799,20 @@ class NetSuite:
         if len(list(internalIds) + list(externalIds)) == 0:
             raise ValueError('Please specify `internalId` and/or `externalId`')
 
-        item_filters = [
-            {'type': 'inventoryItem', 'internalId': internalId}
-            for internalId in internalIds
-        ] + [
-            {'type': 'inventoryItem', 'externalId': externalId}
-            for externalId in externalIds
-        ]
+        item_filters = [{
+            'type': 'inventoryItem',
+            'internalId': internalId
+        } for internalId in internalIds] + [{
+            'type': 'inventoryItem',
+            'externalId': externalId
+        } for externalId in externalIds]
 
         return self.request(
             'getItemAvailability',
             itemAvailabilityFilter=[{
-                'item': {'recordRef': item_filters},
+                'item': {
+                    'recordRef': item_filters
+                },
                 'lastQtyAvailableChange': lastQtyAvailableChange
             }],
         )
