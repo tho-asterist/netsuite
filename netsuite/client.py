@@ -97,7 +97,7 @@ def WebServiceCall(
 
 
 class NetSuite:
-    version = '2018.1.0'
+    version = '2019.1.0'
     wsdl_url_tmpl = 'https://{account_id}.suitetalk.api.netsuite.com/wsdl/v{underscored_version}/netsuite.wsdl'
     datacenter_url_tmpl = 'https://{account_id}.suitetalk.api.netsuite.com/services/NetSuitePort_{underscored_version_no_micro}'
 
@@ -579,7 +579,7 @@ class NetSuite:
             return svc(*args, _soapheaders=self.generate_passport(), **kw)
         except zeep.exceptions.Fault as e:
             errMsg = 'Re-bind NetSuite data center endpoint because %s' % (e.message)
-            warnings.warn(errMsg, ResourceWarning)
+            # warnings.warn(errMsg, ResourceWarning)
             logger.warning(errMsg)
             svc = getattr(self.service_proxy, service_name)
             return svc(*args, _soapheaders=self.generate_passport(), **kw)
