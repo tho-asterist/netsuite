@@ -206,7 +206,7 @@ class NetSuite:
 
     def _generate_inmemory_cache(self) -> zeep.cache.Base:
         return InMemoryCache(timeout=60 * 60 * 24 * 365)
-        
+
     def _generate_session(self) -> requests.Session:
         return requests.Session()
 
